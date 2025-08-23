@@ -1,5 +1,4 @@
 #include <templatebot/templatebot.h>
-#include <sstream>
 
 /* When you invite the bot, be sure to invite it with the
  * scopes 'bot' and 'applications.commands', e.g.
@@ -8,14 +7,15 @@
 
 using json = nlohmann::json;
 
-int main(int argc, char const *argv[])
-{
+int main(int argc, char const *argv[]) {
     json configdocument;
     std::ifstream configfile("../config.json");
     configfile >> configdocument;
 
-    /* Setup the bot */
-    dpp::cluster bot(configdocument["token"]);
+    const std::string BOT_TOKEN = configdocument["token"];
+
+    /* Set up the bot */
+    dpp::cluster bot(BOT_TOKEN);
 
     /* Output simple log messages to stdout */
     bot.on_log(dpp::utility::cout_logger());
@@ -29,7 +29,7 @@ int main(int argc, char const *argv[])
 
     /* Register slash command here in on_ready */
     bot.on_ready([&bot](const dpp::ready_t& event) {
-        /* Wrap command registration in run_once to make sure it doesnt run on every full reconnection */
+        /* Wrap command registration in run_once to make sure it doesn't run on every full reconnection */
         if (dpp::run_once<struct register_bot_commands>()) {
             bot.global_command_create(dpp::slashcommand("ping", "Ping pong!", bot.me.id));
         }

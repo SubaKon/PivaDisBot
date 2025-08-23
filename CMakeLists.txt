@@ -61,14 +61,7 @@ else()
 
     FetchContent_GetProperties(libdpp)
     if(NOT libdpp_POPULATED)
-        FetchContent_Populate(libdpp)
-        target_include_directories(${BOT_NAME} PUBLIC
-            ${libdpp_SOURCE_DIR}/include
-        )
-        add_subdirectory(
-            ${libdpp_SOURCE_DIR}
-            ${libdpp_BINARY_DIR}
-            EXCLUDE_FROM_ALL)
+        FetchContent_MakeAvailable(libdpp)
     endif()
 
     target_link_libraries(${BOT_NAME} dpp)
