@@ -1,4 +1,4 @@
-cmake_minimum_required (VERSION 3.6)
+cmake_minimum_required (VERSION 3.15)
 
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 set(BOT_NAME "templatebot")
@@ -50,19 +50,19 @@ if (DPP_FOUND)
     target_link_libraries(${BOT_NAME} ${DPP_LIBRARIES})
     target_include_directories(${BOT_NAME} PUBLIC ${DPP_INCLUDE_DIR})
 else()
-    message(WARNING "Could not find DPP install. Building from source instead.")
-    option(DPP_BUILD_TEST "" OFF)
-    include(FetchContent)
-
-    FetchContent_Declare(
-            libdpp
-            GIT_REPOSITORY https://github.com/brainboxdotcc/DPP.git
-            GIT_TAG master)
-
-    FetchContent_GetProperties(libdpp)
-    if(NOT libdpp_POPULATED)
-        FetchContent_MakeAvailable(libdpp)
-    endif()
-
-    target_link_libraries(${BOT_NAME} dpp)
+	find_package(Git)
+	message(WARNING "Could not find DPP install. Building from source instead.")
+	if (GIT_FOUND AND EXISTS "${CMAKE_SOURCE_DIR}/.git")
+		execute_process(COMMAND ${GIT_EXECUTABLE} submodule update --init
+				WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+				RESULT_VARIABLE RESULT)
+		if (NOT RESULT EQUAL 0)
+			message(FATAL_ERROR "Failed to update the D++ submodule. Code: ${RESULT}.")
+		else()
+			add_subdirectory(DPP)
+			target_link_libraries(${BOT_NAME} dpp)
+		endif()
+	else()
+		message(FATAL_ERROR "Failed to find the git executable. Can't update the D++ submodule.")
+	endif()
 endif()
