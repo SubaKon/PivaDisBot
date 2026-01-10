@@ -20,7 +20,7 @@ using namespace std;
 
 int main()
 {
-	std::cout << "=== БОТ СТАРТУЕТ ===\n";
+	std::cout << "== БОТ СТАРТУЕТ ==\n";
 	dpp::json configdocument;
 	std::ifstream configfile("../config.json");
 	configfile >> configdocument;
