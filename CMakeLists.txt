@@ -5,7 +5,13 @@ set(BOT_NAME "templatebot")
 
 project(${BOT_NAME})
 aux_source_directory("src" coresrc)
-add_executable(${BOT_NAME} ${coresrc})
+add_executable(${BOT_NAME} ${coresrc}
+		src/jsonSave.cpp
+		include/RoleRules.h
+		include/LogInChanel.h
+		include/VoiceTracker.h
+		src/VoiceTracker.cpp
+		include/MusicPlayer.h)
 
 string(ASCII 27 Esc)
 
@@ -44,6 +50,7 @@ target_link_libraries(${BOT_NAME}
     ${CMAKE_THREAD_LIBS_INIT}
     ${OPENSSL_CRYPTO_LIBRARY} 
     ${OPENSSL_SSL_LIBRARY}
+    mpg123
 )
 
 if (DPP_FOUND)

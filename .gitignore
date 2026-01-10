@@ -1,7 +1,8 @@
+# CMake build artifacts
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
 build/
 out/
-.vs/
-.vscode/
-.idea/
-tmp/
 config.json
