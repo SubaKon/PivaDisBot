@@ -174,32 +174,40 @@ void MusicPlayer::stream_next() {
     std::cout << "[VOICE] Голосовое соединение готово — начинаю декодирование MP3\n";
 
     // 5. Открываем MP3
-    mpg123_handle* mh = mpg123_new(nullptr, nullptr);
+    int err = 0;
+    mpg123_handle* mh = mpg123_new(NULL, &err);
     std::cout << "[MP3] Открываю файл: " << current.filename << "\n";
     std::cout << "[MP3] Файл существует: " << std::filesystem::exists(current.filename) << "\n";
 
-    int open_result = mpg123_open(mh, current.filename.c_str());
+    /*int open_result = mpg123_open(mh, current.filename.c_str());
     if (open_result != MPG123_OK) {
         std::cout << "[MP3] Ошибка открытия файла: " << mpg123_strerror(mh) << " (код: " << open_result << ")\n";
         mpg123_delete(mh);
         stream_next();  // следующий трек
         return;
-    }
+    }*/
 
     // 6. Принудительно устанавливаем нужный формат для Discord
-    mpg123_param(mh, MPG123_FORCE_RATE, 48000, 48000.0);           // 48 кГц
-    mpg123_format(mh, 48000, MPG123_STEREO, MPG123_ENC_16);  // стерео, 16-бит
+    mpg123_param(mh, MPG123_FORCE_RATE, 48000, 48000);           // 48 кГц
+    //mpg123_format(mh, 44000, MPG123_STEREO, MPG123_ENC_16);  // стерео, 16-бит
 
     // 7. Буфер для чтения аудио
-    unsigned char buffer[12000];  // ~20–40 мс аудио за раз
+    size_t buffer_size = mpg123_outblock(mh);
+    unsigned char* buffer = new unsigned char[buffer_size];;  // ~20–40 мс аудио за раз
+
+    int channels, encoding;
+    long rate;
+
+    mpg123_open(mh, current.filename.c_str());
+    mpg123_getformat(mh, &rate, &channels, &encoding);
 
     int read_result;
     size_t done;
     int packets_sent = 0;
-
+    int ms = 0;
     std::cout << "[MP3] Начинаю цикл чтения...\n";
 
-    while ((read_result = mpg123_read(mh, buffer, sizeof(buffer), &done)) == MPG123_OK || read_result == MPG123_NEW_FORMAT) {
+    while ((read_result = mpg123_read(mh, buffer, buffer_size, &done)) == MPG123_OK || read_result == MPG123_NEW_FORMAT) {
         if (read_result == MPG123_NEW_FORMAT) {
             std::cout << "[MP3] Новый формат обнаружен — продолжаю...\n";
             continue;  // просто ждём следующий вызов
@@ -219,7 +227,7 @@ void MusicPlayer::stream_next() {
         //std::cout << "[AUDIO] Отправляю пакет #" << packets_sent << " — " << done << " байт\n";
 
         vc->voiceclient->send_audio_raw((uint16_t*)buffer, done);
-        //std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        std::this_thread::sleep_for(std::chrono::milliseconds(ms));
     }
 
     std::cout << "[MP3] Трек закончился. Отправлено пакетов: " << packets_sent << "\n";
@@ -233,6 +241,7 @@ void MusicPlayer::stream_next() {
     }
 
     // 9. Закрываем файл
+    delete buffer;
     mpg123_close(mh);
     mpg123_delete(mh);
 

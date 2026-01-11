@@ -5,4 +5,5 @@ cmake_install.cmake
 Makefile
 build/
 out/
+.idea/
 config.json
