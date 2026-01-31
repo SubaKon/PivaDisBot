@@ -4,7 +4,7 @@
 #include <thread>
 #include <chrono>
 #include <filesystem>
-#include <dpp/voicestate.h>
+//#include <dpp/voicestate.h>
 
 MusicPlayer::MusicPlayer(dpp::cluster& b) : bot(b) {
     mpg123_init();  // инициализируем mpg123 один раз
@@ -128,20 +128,27 @@ void MusicPlayer::join(const dpp::slashcommand_t& event) {
     event.reply("Пива подключилась к тебе!");
 }
 
+void MusicPlayer::start_playback() {
+    if (is_playing || queue.empty()) return;
+    stop_playback = false;
 
+    std::cout << "Пробуем стартануть поток\n";
+    playback_thread = std::thread([this]() {
+        while (!queue.empty() && !stop_playback && !is_playing) {
+            is_playing = true;
+            stream_next_internal();
+        }
+        is_playing = false;
+        if (queue.empty()) {
+            update_control_panel("Очередь пуста");
+        }
+    });
+    playback_thread.detach();  // или join(), если хочешь ждать
+}
 
-void MusicPlayer::stream_next() {
-    // 1. Проверяем, есть ли что играть
-    if (queue.empty()) {
-        update_control_panel("Очередь пуста");
-        is_paused = false;  // музыка закончилась
-        std::cout << "[STREAM] Очередь пуста — воспроизведение остановлено\n";
-        return;
-    }
-
-    // 2. Берём следующий трек из очереди
+void MusicPlayer::stream_next_internal() {
     Track current = queue.front();
-    queue.pop();  // удаляем его из очереди
+    queue.pop();
 
     // 3. Обновляем статус (кнопки, текст)
     std::cout << "[STREAM] Начинаю играть: " << current.title << " (" << current.filename << ")\n";
@@ -241,13 +248,12 @@ void MusicPlayer::stream_next() {
     }
 
     // 9. Закрываем файл
-    delete buffer;
     mpg123_close(mh);
     mpg123_delete(mh);
+    delete[] buffer;
 
     // 10. Автоматически запускаем следующий трек
-    std::cout << "[STREAM] Запускаю следующий трек...\n";
-    stream_next();  // ← рекурсия! После конца текущего — сразу следующий
+    std::cout << "[STREAM] Жду запуска следуюущего трека...\n";
 }
 
 void MusicPlayer::add_track(const std::string& filename, const std::string& title) {
@@ -259,26 +265,35 @@ void MusicPlayer::add_track(const std::string& filename, const std::string& titl
 
     // Если ничего не играет — начинаем сразу
     if (queue.size() == 1 && is_paused) {
-        stream_next();
+        start_playback();
     }
 }
 
 void MusicPlayer::play(const dpp::button_click_t& event) {
-    join(event);
+    //join(event);
     voice_connection=event.from()->get_voice(event.command.guild_id);
     std::cout << "voice_connection "<< voice_connection << "\n";
     is_paused = false;
     if (!queue.empty()) {
-        stream_next();
+        start_playback();
     }
 }  // без guild_id
 
 void MusicPlayer::skip() {
-    if (queue.empty() && is_paused) {
-        return;  // ничего не играет — нечего скипать
+
+    //if (!is_playing) return;
+    std::cout << "Пробуем скип..\n";
+    stop_playback = true;  // прерываем текущий трек
+
+    // Ждём немного, чтобы поток увидел флаг (или можно join, но detach проще)
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    std::cout << "Запуск далее..\n";
+    // Запускаем следующий
+    if (!queue.empty()) {
+        start_playback();  // создаст новый поток с новым треком
+    } else {
+        update_control_panel("Очередь пуста");
     }
-    skip_requested = true;  // ставим флаг
-    update_control_panel("Пропуск трека...");
 }
 void MusicPlayer::stop() {
     queue = std::queue<Track>{};  // очищаем очередь

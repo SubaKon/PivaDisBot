@@ -38,6 +38,12 @@ private:
 
     dpp::voiceconn* voice_connection = nullptr;
 
-    void stream_next();
     void update_control_panel(const std::string& status);
+    void stream_next_internal();
+    void start_playback();
+
+    std::thread playback_thread;
+    std::atomic<bool> stop_playback{false};     // атомарный флаг для безопасного прерывания
+    bool is_playing = false;
+
 };
