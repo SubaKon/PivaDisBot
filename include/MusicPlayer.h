@@ -3,6 +3,9 @@
 #include <queue>
 #include <string>
 
+#include <atomic>
+#include <thread>
+
 struct Track {
     std::string filename;  // путь к MP3
     std::string title;     // название
@@ -12,38 +15,36 @@ class MusicPlayer {
 public:
     explicit MusicPlayer(dpp::cluster& b);
 
-    void createMusicPlayer(const  dpp::slashcommand_t& event);
-    void join(const dpp::button_click_t& event);
+    // Подключаемся к голосовому каналу вызывающего (slash или button)
     void join(const dpp::slashcommand_t& event);
 
     void add_track(const std::string& filename, const std::string& title = "");
-    void play(const dpp::button_click_t& event);  // без guild_id
-    void skip();
+
+    void play();
     void stop();
-    void pausse();
-    void resume();
+    void pausa();
 
-    dpp::message editMusicPlayer(const std::string& status = "Очередь пуста");
+    bool is_playing() const { return playing.load(); }
 
+    void createMusicPlayer(const  dpp::slashcommand_t& event);
+    std::string scan();  // ← теперь принимает event, чтобы ответить
+;
 private:
     dpp::cluster& bot;
-    dpp::slashcommand_t Event;
-
-    std::queue<Track> queue;
-    bool is_paused = false;
-    bool skip_requested = false;
-
-    dpp::snowflake control_message_id = 0;
-    dpp::snowflake control_channel_id = 0;
 
     dpp::voiceconn* voice_connection = nullptr;
 
-    void update_control_panel(const std::string& status);
-    void stream_next_internal();
-    void start_playback();
+    std::queue<Track> queue;
+    std::atomic<bool> playing{false};
+    std::atomic<bool> should_stop{false};
 
     std::thread playback_thread;
-    std::atomic<bool> stop_playback{false};     // атомарный флаг для безопасного прерывания
-    bool is_playing = false;
 
+    //void playback_loop();
+    void stream_next_internal();
+
+    dpp::message editMusicPlayer(const std::string& status);
+    void update_control_panel(const std::string& status);
+    dpp::snowflake control_message_id;
+    dpp::snowflake control_channel_id;
 };

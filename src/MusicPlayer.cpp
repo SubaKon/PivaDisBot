@@ -8,30 +8,56 @@
 
 MusicPlayer::MusicPlayer(dpp::cluster& b) : bot(b) {
     mpg123_init();  // инициализируем mpg123 один раз
+    std::cout << scan() << std::endl;
+}
+std::string MusicPlayer::scan() {
+    const std::string music_folder = "/home/subakon/Музыка";  // потом вынеси в конфиг!
 
-    const std::string music_folder = "/home/subakon/Музыка/2.klas";  // ← замени на свой путь, если нужно
-
-    if (!std::filesystem::exists(music_folder)) {
-        std::cout << "[MusicPlayer] Папка " << music_folder << " не найдена!\n";
-        return;
+    if (!std::filesystem::exists(music_folder) || !std::filesystem::is_directory(music_folder)) {
+        return  "Папка с музыкой не найдена или это не папка: " + music_folder;
     }
 
-    std::cout << "[MusicPlayer] Сканирую папку " << music_folder << "...\n";
+    // Очищаем старую очередь перед новым сканом (самый простой способ)
+    while (!queue.empty()) queue.pop();
 
-    for (const auto& entry : std::filesystem::directory_iterator(music_folder)) {
+    size_t added = 0;
+
+    for (const auto& entry : std::filesystem::recursive_directory_iterator(music_folder)) {
         if (entry.is_regular_file()) {
-            std::string filename = entry.path().string();
-            std::string extension = entry.path().extension().string();
+            std::string path = entry.path().string();
+            std::string ext = entry.path().extension().string();
 
-            // Поддерживаем .mp3 (можно добавить .ogg, .wav и т.д.)
-            if (extension == ".mp3" || extension == ".MP3") {
-                add_track(filename);  // используем твою функцию
-                std::cout << "[MusicPlayer] Добавлен трек: " << entry.path().filename().string() << "\n";
+            // Поддерживаем mp3 (можно добавить .ogg, .wav, .flac позже)
+            if (ext == ".mp3" || ext == ".MP3") {
+                add_track(path);
+                added++;
             }
         }
     }
 
-    std::cout << "[MusicPlayer] Загружено " << queue.size() << " треков.\n";
+    std::string reply_text = "Сканирование завершено!\n";
+    reply_text += "Найдено и добавлено треков: **" + std::to_string(added) + "**\n";
+    reply_text += "Очередь очищена и заполнена заново.\n";
+    if (added == 0) {
+        reply_text += "⚠️ В папке нет .mp3 файлов (или доступ запрещён)";
+    } else {
+        reply_text += "Теперь можно жать Play или использовать кнопки!";
+    }
+
+    return reply_text;
+
+    // Опционально: если ничего не играет — можно сразу стартануть
+    // if (added > 0 && !playing) play();
+}
+void MusicPlayer::add_track(const std::string& filename, const std::string& title) {
+    std::string t = title.empty() ? std::filesystem::path(filename).stem().string() : title;
+    queue.push({filename, t});
+    std::cout << "[Queue] + " << t << "\n";
+
+    // Если ничего не играет — стартуем
+    /*if (!playing && !queue.empty()) {
+        play();
+    }*/
 }
 
 void MusicPlayer::createMusicPlayer(const  dpp::slashcommand_t& event) {
@@ -101,18 +127,6 @@ dpp::message MusicPlayer::editMusicPlayer(const std::string& status) {
     /* Reply to the user with our message. */
     return msg;
 }
-void MusicPlayer::join(const dpp::button_click_t& event) {
-    /* Get the guild */
-    dpp::guild* g = dpp::find_guild(event.command.guild_id);
-
-    /* Attempt to connect to a voice channel, returns false if we fail to connect. */
-    if (!g->connect_member_voice(*event.owner, event.command.get_issuing_user().id)) {
-        event.reply("Пива набухалась сама, и не придёт");
-        return;
-    }
-    /* Tell the user we joined their channel. */
-    event.reply("Пива подключилась к тебе!");
-}
 
 void MusicPlayer::join(const dpp::slashcommand_t& event) {
     /* Get the guild */
@@ -120,15 +134,15 @@ void MusicPlayer::join(const dpp::slashcommand_t& event) {
 
     /* Attempt to connect to a voice channel, returns false if we fail to connect. */
     if (!g->connect_member_voice(*event.owner, event.command.get_issuing_user().id)) {
-        event.reply("Пива набухалась сама, и не придёт");
+        event.reply(dpp::message("Пива набухалась сама, и не придёт").set_flags(dpp::m_ephemeral));
         return;
     }
     /* Tell the user we joined their channel. */
-    Event=event;
-    event.reply("Пива подключилась к тебе!");
+    voice_connection=event.from()->get_voice(event.command.guild_id);
+    event.reply(dpp::message("Пива подключилась к тебе!").set_flags(dpp::m_ephemeral));
 }
 
-void MusicPlayer::start_playback() {
+/*void MusicPlayer::start_playback() {
     if (is_playing || queue.empty()) return;
     stop_playback = false;
 
@@ -144,7 +158,102 @@ void MusicPlayer::start_playback() {
         }
     });
     playback_thread.detach();  // или join(), если хочешь ждать
+}*/
+
+
+
+void MusicPlayer::stop() {
+    should_stop = true;
+    playing = false;
 }
+void MusicPlayer::play() {
+    if (playing || queue.empty()) return;
+
+    auto vc = voice_connection;  // т.к. приватный сервер — берём любой, или сохрани snowflake в поле
+    if (!vc || !vc->voiceclient || !vc->voiceclient->is_ready()) {
+        std::cout << "[Play] Голос не готов или nullptr\n";
+        return;
+    }
+
+    playing = true;
+    should_stop = false;
+
+    stream_next_internal();
+    //playback_loop();
+    //playback_thread = std::thread(&MusicPlayer::playback_loop, this);
+    //playback_thread.detach();  // пока так, потом можно сделать joinable если нужно
+
+    update_control_panel("Играет");
+}
+void MusicPlayer::pausa() {
+    playing = false;
+    update_control_panel("Пивная пауза");
+}
+
+/*void MusicPlayer::playback_loop() {
+    constexpr long TARGET_RATE = 48000;
+    //constexpr int TARGET_CHANNELS = MPG123_STEREO;
+    //constexpr int TARGET_ENCODING = MPG123_ENC_SIGNED_16;
+    //constexpr size_t SAMPLES_PER_PACKET = 960;             // 20 мс @ 48 кГц
+    //constexpr size_t BYTES_PER_PACKET = SAMPLES_PER_PACKET * 4;  // 2 канала × 2 байта
+
+    while (!queue.empty() && !should_stop) {
+        Track track = queue.front();
+        queue.pop();
+        std::cout << "[Play] → " << track.title << "\n";
+
+        int err = 0;
+        mpg123_handle* mh = mpg123_new(NULL, &err);
+        if (!mh) continue;
+
+        // Жёстко заставляем нужный формат
+        mpg123_param(mh, MPG123_FORCE_RATE, TARGET_RATE, TARGET_RATE);
+        //mpg123_format_none(mh);
+        //mpg123_format(mh, TARGET_RATE, TARGET_CHANNELS, TARGET_ENCODING);
+
+        if (mpg123_open(mh, track.filename.c_str()) != MPG123_OK) {
+            std::cout << "[MPG123] Не открылся: " << mpg123_strerror(mh) << "\n";
+            mpg123_delete(mh);
+            continue;
+        }
+
+        // Проверяем, что формат реально 48k/стерео/16bit
+        long rate;
+        int channels, encoding;
+        mpg123_getformat(mh, &rate, &channels, &encoding);
+        std::cout << "[Format] " << rate << " Hz, ch:" << channels << ", enc:" << encoding << "\n";
+
+        size_t buffer_size = mpg123_outblock(mh);
+        unsigned char* buffer = new unsigned char[buffer_size];
+        size_t done = 0;
+        auto vc = voice_connection;
+
+        int read_result , packets_sent;
+        while ((read_result = mpg123_read(mh, buffer, buffer_size, &done)) == MPG123_OK || read_result == MPG123_NEW_FORMAT) {
+            if (read_result == MPG123_NEW_FORMAT) {
+                std::cout << "[MP3] Новый формат обнаружен — продолжаю...\n";
+                continue;  // просто ждём следующий вызов
+            }
+
+            packets_sent++;
+            //std::cout << "[AUDIO] Отправляю пакет #" << packets_sent << " — " << done << " байт\n";
+
+            vc->voiceclient->send_audio_raw((uint16_t*)buffer, done);
+            std::this_thread::sleep_for(std::chrono::milliseconds(0));
+        }
+
+
+
+        mpg123_close(mh);
+        mpg123_delete(mh);
+        delete[] buffer;
+        std::cout << "[End] " << track.title << "\n";
+        std::cout << "[STREAM] Жду запуска следуюущего трека...\n";
+    }
+
+    playing = false;
+    std::cout << "[Queue empty or stopped]\n";
+}*/
 
 void MusicPlayer::stream_next_internal() {
     Track current = queue.front();
@@ -164,7 +273,7 @@ void MusicPlayer::stream_next_internal() {
         return;
     }
 
-    std::cout << "[VOICE] voiceclient указатель: " << vc->voiceclient << "\n";
+    std::cout << "[VOICE] voiceclient указатель: " << vc->voiceclient.get() << "\n";
     if (!vc->voiceclient) {
         std::cout << "[VOICE] Ошибка: voiceclient == nullptr\n";
         return;
@@ -186,17 +295,11 @@ void MusicPlayer::stream_next_internal() {
     std::cout << "[MP3] Открываю файл: " << current.filename << "\n";
     std::cout << "[MP3] Файл существует: " << std::filesystem::exists(current.filename) << "\n";
 
-    /*int open_result = mpg123_open(mh, current.filename.c_str());
-    if (open_result != MPG123_OK) {
-        std::cout << "[MP3] Ошибка открытия файла: " << mpg123_strerror(mh) << " (код: " << open_result << ")\n";
-        mpg123_delete(mh);
-        stream_next();  // следующий трек
-        return;
-    }*/
-
     // 6. Принудительно устанавливаем нужный формат для Discord
     mpg123_param(mh, MPG123_FORCE_RATE, 48000, 48000);           // 48 кГц
     //mpg123_format(mh, 44000, MPG123_STEREO, MPG123_ENC_16);  // стерео, 16-бит
+    mpg123_format_none(mh);
+    mpg123_format(mh, 48000, MPG123_STEREO, MPG123_ENC_SIGNED_16);
 
     // 7. Буфер для чтения аудио
     size_t buffer_size = mpg123_outblock(mh);
@@ -209,35 +312,28 @@ void MusicPlayer::stream_next_internal() {
     mpg123_getformat(mh, &rate, &channels, &encoding);
 
     int read_result;
-    size_t done;
-    int packets_sent = 0;
-    int ms = 0;
+    size_t done =0;
     std::cout << "[MP3] Начинаю цикл чтения...\n";
 
-    while ((read_result = mpg123_read(mh, buffer, buffer_size, &done)) == MPG123_OK || read_result == MPG123_NEW_FORMAT) {
-        if (read_result == MPG123_NEW_FORMAT) {
-            std::cout << "[MP3] Новый формат обнаружен — продолжаю...\n";
-            continue;  // просто ждём следующий вызов
+    int ret;
+
+    while ((ret = mpg123_read(mh, buffer, buffer_size, &done)) == MPG123_OK ||
+            ret == MPG123_NEW_FORMAT) {
+        if (ret == MPG123_NEW_FORMAT) continue;
+
+        if (done == 0) break;
+
+        // Добиваем тишиной, если конец файла
+        if (done < buffer_size) {
+            std::memset(buffer + done, 0, buffer_size - done);
+            done = buffer_size;
         }
 
-        if (is_paused) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            continue;
-        }
-        if (skip_requested) {
-            skip_requested = false;
-            std::cout << "[CONTROL] Скип — прерываю трек\n";
-            break;
-        }
+        vc->voiceclient->send_audio_raw(reinterpret_cast<uint16_t*>(buffer), done);
 
-        packets_sent++;
-        //std::cout << "[AUDIO] Отправляю пакет #" << packets_sent << " — " << done << " байт\n";
-
-        vc->voiceclient->send_audio_raw((uint16_t*)buffer, done);
-        std::this_thread::sleep_for(std::chrono::milliseconds(ms));
-    }
-
-    std::cout << "[MP3] Трек закончился. Отправлено пакетов: " << packets_sent << "\n";
+        // САМОЕ ВАЖНОЕ — тайминг!
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            }
 
     // После цикла — проверяем, почему вышли
     if (read_result != MPG123_DONE && read_result != MPG123_OK) {
@@ -256,58 +352,6 @@ void MusicPlayer::stream_next_internal() {
     std::cout << "[STREAM] Жду запуска следуюущего трека...\n";
 }
 
-void MusicPlayer::add_track(const std::string& filename, const std::string& title) {
-    std::string display_title = title;
-    if (display_title.empty()) {
-        display_title = std::filesystem::path(filename).filename().stem().string();
-    }
-    queue.push({filename, display_title});
-
-    // Если ничего не играет — начинаем сразу
-    if (queue.size() == 1 && is_paused) {
-        start_playback();
-    }
-}
-
-void MusicPlayer::play(const dpp::button_click_t& event) {
-    //join(event);
-    voice_connection=event.from()->get_voice(event.command.guild_id);
-    std::cout << "voice_connection "<< voice_connection << "\n";
-    is_paused = false;
-    if (!queue.empty()) {
-        start_playback();
-    }
-}  // без guild_id
-
-void MusicPlayer::skip() {
-
-    //if (!is_playing) return;
-    std::cout << "Пробуем скип..\n";
-    stop_playback = true;  // прерываем текущий трек
-
-    // Ждём немного, чтобы поток увидел флаг (или можно join, но detach проще)
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
-    std::cout << "Запуск далее..\n";
-    // Запускаем следующий
-    if (!queue.empty()) {
-        start_playback();  // создаст новый поток с новым треком
-    } else {
-        update_control_panel("Очередь пуста");
-    }
-}
-void MusicPlayer::stop() {
-    queue = std::queue<Track>{};  // очищаем очередь
-    is_paused = true;
-    update_control_panel("Остановлено");
-}
-void MusicPlayer::pausse() {
-    is_paused = true;
-    update_control_panel("Пивная пауза");
-}
-void MusicPlayer::resume() {
-    is_paused = false;
-    update_control_panel("Играет");
-}
 void MusicPlayer::update_control_panel(const std::string& status) {
     if (control_message_id == 0) return;
     dpp::message msg =editMusicPlayer(status);

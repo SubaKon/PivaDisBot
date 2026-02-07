@@ -89,14 +89,14 @@ int main()
 	   */
 	  	bool flag = false;
 	  	if (event.custom_id =="beer") {
-	  		player.play(event);
+	  		player.play();
 	  	}
 		if (event.custom_id =="pause") {
-			  player.pausse();
+			  player.pausa();
 			  flag = true;
 		}
 		if (event.custom_id =="next") {
-			  player.skip();
+			  //player.skip();
 			  flag = true;
 		}
 		if (event.custom_id =="previous") {
@@ -176,7 +176,7 @@ int main()
 			bot.global_command_create(joincommand);
 		}
 		});
-	
+
 	/* Start the bot */
 	bot.start(dpp::st_wait);
 
